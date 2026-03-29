@@ -22,6 +22,7 @@ class DB(Enum):
     dm = ('dm', '达梦', '"', '"', ConnectType.py_driver, 'DM', [])
     doris = ('doris', 'Apache Doris', '`', '`', ConnectType.py_driver, 'Doris', [])
     es = ('es', 'Elasticsearch', '"', '"', ConnectType.py_driver, 'Elasticsearch', [])
+    hive = ('hive', 'Apache Hive', '`', '`', ConnectType.py_driver, 'Apache_Hive', [])
     kingbase = ('kingbase', 'Kingbase', '"', '"', ConnectType.py_driver, 'Kingbase', [])
     sqlServer = ('sqlServer', 'Microsoft SQL Server', '[', ']', ConnectType.sqlalchemy, 'Microsoft_SQL_Server', [])
     mysql = ('mysql', 'MySQL', '`', '`', ConnectType.sqlalchemy, 'MySQL', ['local_infile'])

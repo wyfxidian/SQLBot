@@ -1,0 +1,91 @@
+template:
+  quot_rule: |
+    <rule>
+      必须对数据库名、表名、字段名、别名外层加反引号（`）。
+      <note>
+        1. 点号（.）不能包含在反引号内，必须写成 `database`.`table`
+        2. Hive默认不区分大小写，但建议统一使用反引号
+        3. 当标识符为关键字或含特殊字符时必须加反引号
+      </note>
+    </rule>
+
+  limit_rule: |
+    <rule>
+      当需要限制行数时，必须使用LIMIT语法
+      <note>
+        1. 标准写法：LIMIT [count]
+        2. Hive不支持 LIMIT [offset], [count] 写法
+        3. 分页需求使用子查询或窗口函数配合 LIMIT
+      </note>
+    </rule>
+
+  other_rule: |
+    <rule>必须为每个表生成别名（不加AS）</rule>
+    {multi_table_condition}
+    <rule>禁止使用星号(*)，必须明确字段名</rule>
+    <rule>中文/特殊字符字段需保留原名并添加英文别名</rule>
+    <rule>函数字段必须加别名</rule>
+    <rule>百分比显示为：CONCAT(ROUND(x*100,2),'%')</rule>
+    <rule>避免与Hive关键字冲突（如`order`/`group`/`date`/`timestamp`/`user`）</rule>
+    <rule>字符串拼接必须使用CONCAT函数，不支持'||'操作符</rule>
+
+  basic_example: |
+    <basic-examples>
+      <intro>
+        以下示例严格遵循 HiveQL 规范，展示符合要求的 SQL 写法与典型错误案例。
+        注意：示例中的表名、字段名均为演示虚构，实际使用时需替换为用户提供的真实标识符。
+        重点观察：
+          1. 反引号包裹所有数据库对象的规范用法
+          2. Hive特有的LIMIT限制（不支持OFFSET）
+          3. 中英别名/百分比/函数等特殊字段的处理
+      </intro>
+      <example>
+        <input>查询 mydb.orders 表的前100条订单</input>
+        <output-bad>
+          SELECT * FROM mydb.orders LIMIT 100  -- 错误：使用星号
+          SELECT `订单ID` FROM `mydb`.`orders` LIMIT 100  -- 错误：缺少英文别名
+          SELECT COUNT(`订单ID`) FROM `mydb`.`orders`  -- 错误：函数未加别名
+        </output-bad>
+        <output-good>
+          SELECT
+            `t1`.`订单ID` AS `order_id`,
+            `t1`.`金额` AS `amount`,
+            COUNT(`t1`.`订单ID`) AS `total_orders`,
+            CONCAT(ROUND(`t1`.`折扣率` * 100, 2), '%') AS `discount_percent`
+          FROM `mydb`.`orders` `t1`
+          LIMIT 100
+        </output-good>
+      </example>
+
+      <example>
+        <input>统计各产品的销售额占比</input>
+        <output-bad>
+          SELECT `product`, `amount` || '%' FROM `mydb`.`sales`  -- 错误：Hive不支持||拼接
+          SELECT * FROM `mydb`.`sales` GROUP BY `product`  -- 错误：使用星号
+        </output-bad>
+        <output-good>
+          SELECT
+            `s`.`product` AS `product_name`,
+            SUM(`s`.`amount`) AS `total_amount`,
+            CONCAT(ROUND(SUM(`s`.`amount`) * 100.0 / SUM(SUM(`s`.`amount`)) OVER (), 2), '%') AS `percent`
+          FROM `mydb`.`sales` `s`
+          GROUP BY `s`.`product`
+          ORDER BY `total_amount` DESC
+          LIMIT 1000
+        </output-good>
+      </example>
+    </basic-examples>
+
+  example_engine: Apache Hive 3.1
+  example_answer_1: |
+    {"success":true,"sql":"SELECT `country` AS `country_name`, `continent` AS `continent_name`, `year` AS `year`, `gdp` AS `gdp_usd` FROM `Sample_Database`.`sample_country_gdp` ORDER BY `country`, `year`","tables":["sample_country_gdp"],"chart-type":"line"}
+  example_answer_1_with_limit: |
+    {"success":true,"sql":"SELECT `country` AS `country_name`, `continent` AS `continent_name`, `year` AS `year`, `gdp` AS `gdp_usd` FROM `Sample_Database`.`sample_country_gdp` ORDER BY `country`, `year` LIMIT 1000","tables":["sample_country_gdp"],"chart-type":"line"}
+  example_answer_2: |
+    {"success":true,"sql":"SELECT `country` AS `country_name`, `gdp` AS `gdp_usd` FROM `Sample_Database`.`sample_country_gdp` WHERE `year` = '2024' ORDER BY `gdp` DESC","tables":["sample_country_gdp"],"chart-type":"pie"}
+  example_answer_2_with_limit: |
+    {"success":true,"sql":"SELECT `country` AS `country_name`, `gdp` AS `gdp_usd` FROM `Sample_Database`.`sample_country_gdp` WHERE `year` = '2024' ORDER BY `gdp` DESC LIMIT 1000","tables":["sample_country_gdp"],"chart-type":"pie"}
+  example_answer_3: |
+    {"success":true,"sql":"SELECT `country` AS `country_name`, `gdp` AS `gdp_usd` FROM `Sample_Database`.`sample_country_gdp` WHERE `year` = '2025' AND `country` = '中国'","tables":["sample_country_gdp"],"chart-type":"table"}
+  example_answer_3_with_limit: |
+    {"success":true,"sql":"SELECT `country` AS `country_name`, `gdp` AS `gdp_usd` FROM `Sample_Database`.`sample_country_gdp` WHERE `year` = '2025' AND `country` = '中国' LIMIT 1000","tables":["sample_country_gdp"],"chart-type":"table"}

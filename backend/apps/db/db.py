@@ -18,6 +18,7 @@ if platform.system() != "Darwin":
     import dmPython
 import pymysql
 import redshift_connector
+from pyhive import hive
 from sqlalchemy import create_engine, text, Engine
 from sqlalchemy.orm import sessionmaker
 
@@ -131,6 +132,23 @@ def get_origin_connect(type: str, conf: DatasourceConf):
                 timeout=conf.timeout,
                 **extra_config_dict
             )
+
+
+def get_hive_connect(conf: DatasourceConf):
+    extra_config_dict = get_extra_config(conf)
+    connect_kwargs = {
+        'host': conf.host,
+        'port': conf.port,
+        'database': conf.database or 'default',
+    }
+    if conf.username:
+        connect_kwargs['username'] = conf.username
+    if conf.password:
+        connect_kwargs['password'] = conf.password
+    if 'auth' in extra_config_dict:
+        connect_kwargs['auth'] = extra_config_dict.pop('auth')
+    connect_kwargs.update(extra_config_dict)
+    return hive.Connection(**connect_kwargs)
 
 
 # use sqlalchemy
@@ -255,6 +273,18 @@ def check_connection(trans: Optional[Trans], ds: CoreDatasource | AssistantOutDs
             else:
                 SQLBotLogUtil.info("failed")
                 return False
+        elif equals_ignore_case(ds.type, 'hive'):
+            with get_hive_connect(conf) as conn, conn.cursor() as cursor:
+                try:
+                    cursor.execute('SELECT 1')
+                    cursor.fetchall()
+                    SQLBotLogUtil.info("success")
+                    return True
+                except Exception as e:
+                    SQLBotLogUtil.error(f"Datasource {ds.id} connection failed: {e}")
+                    if is_raise:
+                        raise HTTPException(status_code=500, detail=trans('i18n_ds_invalid') + f': {e.args}')
+                    return False
     # else:
     #     conn = get_ds_engine(ds)
     #     try:
@@ -310,7 +340,7 @@ def get_version(ds: CoreDatasource | AssistantOutDsSchema):
                     cursor.execute(sql)
                     res = cursor.fetchall()
                     version = res[0][0]
-            elif equals_ignore_case(ds.type, 'redshift', 'es'):
+            elif equals_ignore_case(ds.type, 'redshift', 'es', 'hive'):
                 version = ''
     except Exception as e:
         print(e)
@@ -367,6 +397,12 @@ def get_schema(ds: CoreDatasource):
                 res = cursor.fetchall()
                 res_list = [item[0] for item in res]
                 return res_list
+        elif equals_ignore_case(ds.type, 'hive'):
+            with get_hive_connect(conf) as conn, conn.cursor() as cursor:
+                cursor.execute("SHOW DATABASES")
+                res = cursor.fetchall()
+                res_list = [item[0] for item in res]
+                return res_list
 
 
 def get_tables(ds: CoreDatasource):
@@ -418,6 +454,12 @@ def get_tables(ds: CoreDatasource):
             res = get_es_index(conf)
             res_list = [TableSchema(*item) for item in res]
             return res_list
+        elif equals_ignore_case(ds.type, 'hive'):
+            with get_hive_connect(conf) as conn, conn.cursor() as cursor:
+                cursor.execute(sql.format(sql_param))
+                res = cursor.fetchall()
+                res_list = [TableSchema(item[0], '') for item in res]
+                return res_list
 
 
 def get_fields(ds: CoreDatasource, table_name: str = None):
@@ -469,6 +511,20 @@ def get_fields(ds: CoreDatasource, table_name: str = None):
             res = get_es_fields(conf, table_name)
             res_list = [ColumnSchema(*item) for item in res]
             return res_list
+        elif equals_ignore_case(ds.type, 'hive'):
+            with get_hive_connect(conf) as conn, conn.cursor() as cursor:
+                cursor.execute(sql.format(p1, p2))
+                res = cursor.fetchall()
+                filtered = []
+                for row in res:
+                    col_name = row[0]
+                    if col_name and not str(col_name).startswith('#'):
+                        filtered.append(ColumnSchema(
+                            col_name,
+                            row[1] if len(row) > 1 else '',
+                            row[2] if len(row) > 2 else ''
+                        ))
+                return filtered
 
 
 def convert_value(value, datetime_format='space'):
@@ -655,6 +711,21 @@ def exec_sql(ds: CoreDatasource | AssistantOutDsSchema, sql: str, origin_column=
                         "sql": bytes.decode(base64.b64encode(bytes(sql, 'utf-8')))}
             except Exception as ex:
                 raise Exception(str(ex))
+        elif equals_ignore_case(ds.type, 'hive'):
+            with get_hive_connect(conf) as conn, conn.cursor() as cursor:
+                try:
+                    cursor.execute(sql)
+                    res = cursor.fetchall()
+                    columns = [field[0] for field in cursor.description] if cursor.description else []
+                    columns = columns if origin_column else [col.lower() for col in columns]
+                    result_list = [
+                        {str(columns[i]): convert_value(value) for i, value in enumerate(tuple_item)} for tuple_item in
+                        res
+                    ]
+                    return {"fields": columns, "data": result_list,
+                            "sql": bytes.decode(base64.b64encode(bytes(sql, 'utf-8')))}
+                except Exception as ex:
+                    raise ParseSQLResultError(str(ex))
 
 
 def check_sql_read(sql: str, ds: CoreDatasource | AssistantOutDsSchema):
@@ -662,6 +733,8 @@ def check_sql_read(sql: str, ds: CoreDatasource | AssistantOutDsSchema):
         dialect = None
         if equals_ignore_case(ds.type, 'mysql', 'doris', 'starrocks'):
             dialect = 'mysql'
+        elif equals_ignore_case(ds.type, 'hive'):
+            dialect = 'hive'
         elif equals_ignore_case(ds.type, 'sqlServer'):
             dialect = 'tsql'
 

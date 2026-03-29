@@ -540,6 +540,7 @@ defineExpose({
         <span v-else-if="form.type === 'mysql'">5.6+</span>
         <span v-else-if="form.type === 'pg'">9.6+</span>
         <span v-else-if="form.type === 'es'">7+</span>
+        <span v-else-if="form.type === 'hive'">3.1+</span>
       </span>
     </div>
     <div class="form-content">
